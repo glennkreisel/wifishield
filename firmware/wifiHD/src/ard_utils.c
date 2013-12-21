@@ -69,6 +69,24 @@ uint8_t* insertBuf(uint8_t sock, uint8_t* buf, uint16_t len)
 }
 
 
+// find the total number of bytes unread by client
+uint16_t calcAvailLen(uint8_t sock)
+{
+	uint16_t len = 0;
+
+	unsigned char index = tailBuf[sock];
+	do {
+		if (pBufStore[index][sock].data != NULL)
+		{
+		len += (pBufStore[index][sock].len - pBufStore[index][sock].idx);		// total bytes in buffer minus the ones we've already read
+		}
+	++index;
+	if (index == MAX_PBUF_STORED)
+		index = 0;
+	} while (index!=headBuf[sock]);
+	return len;
+}
+
 uint16_t calcMergeLen(uint8_t sock)
 {
 	uint16_t len = 0;
@@ -275,7 +293,7 @@ bool isAvailTcpDataByte(uint8_t sock)
 
 uint16_t getAvailTcpDataByte(uint8_t sock)
 {
-	uint16_t len = calcMergeLen(sock);
+	uint16_t len = calcAvailLen(sock);
 	INFO_UTIL("Availabled data: %d\n", len);
 	return len;
 }
@@ -304,17 +322,39 @@ bool getTcpDataByte(uint8_t sock, uint8_t* payload, uint8_t peek)
 	return false;
 }
 
-bool getTcpData(uint8_t sock, void** payload, uint16_t* len)
+
+uint16_t getTcpData(uint8_t sock, void** payload, uint16_t* cbTotal, char *pindex, uint8_t *piFreeIdx)
 {
 	tData* p = NULL;
-	p = get_pBuf(sock);
-	if (p != NULL)
-	{
-		*payload = p->data;
-		*len = p->len;
-		return true;
-	}
-	return false;
+	uint16_t cbTemp = 0;
+	
+		if (*pindex == -1)		// First time into enumeration
+			*pindex = tailBuf[sock];
+		do {
+			if (*cbTotal == 0 || *pindex==headBuf[sock])		// have we read all chars or have we gotten to the end of our buffers
+				return 0;
+			cbTemp = 0;
+			p = &pBufStore[*pindex][sock];
+			if (p->data != NULL)
+			{
+			cbTemp = min(cbTotal, p->len - p->idx);
+			
+			*payload = p->data+p->idx;
+			if (cbTemp == p->len - p->idx)			// if we are copying all bytes from the buffer, mark it to be removed
+				*piFreeIdx = *pindex;
+			else
+				{
+				*piFreeIdx = 255;					// do not remove buffer and bump next read char index to be read
+				p->idx += cbTemp;
+				}
+			*cbTotal -= cbTemp;						// see if we are done reading everything
+			}
+			++(*pindex);					// Keep moving through buffers
+			if (*pindex == MAX_PBUF_STORED)	// loop back if at end
+				*pindex = 0;
+		} while (cbTemp == 0);		// if no bytes in that buffer move to next one
+		
+		return cbTemp;
 }
 
 bool freeTcpData(uint8_t sock)

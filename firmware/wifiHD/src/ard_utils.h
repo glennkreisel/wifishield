@@ -279,7 +279,7 @@ void freetDataIdx(uint8_t idxBuf, uint8_t sock);
 
 bool isBufAvail();
 
-bool getTcpData(uint8_t sock, void** payload, uint16_t* len);
+uint16_t getTcpData(uint8_t sock, void** payload, uint16_t* cbTotal, char *pindex, uint8_t *piFreeIdx);
 
 bool getTcpDataByte(uint8_t sock, uint8_t* payload, uint8_t peek);
 

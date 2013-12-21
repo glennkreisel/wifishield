@@ -1277,20 +1277,42 @@ cmd_spi_state_t get_data_tcp_cmd_cb(char* recv, char* reply, void* ctx, uint16_t
 cmd_spi_state_t get_databuf_tcp_cmd_cb(char* recv, char* reply, void* ctx, uint16_t* count) {
 
 	uint8_t* data;
-	uint16_t len;
 
     CHECK_ARD_NETIF(recv, reply, count);
+	
+    tParam* params = (tParam*)&recv[3];
 
-    GET_DATA_BYTE(sock, buf+5);
+    GET_PARAM_NEXT(BYTE, params, _sock);
+    GET_PARAM_NEXT(INT, params, len);			// Get number of bytes requested from client
+	
     if ((sock>=0)&&(sock<MAX_SOCK_NUM))
-    {
-    	if (getTcpData((uint8_t)sock, (void**)&data, &len))
-    	{
-    		CREATE_HEADER_REPLY(reply, recv, PARAM_NUMS_1);
-    		PUT_BUFDATA_INT(data, len, reply, 3);
-    		END_HEADER_REPLY(reply, 3+len+2, *count);
-    		freeTcpData((uint8_t)sock);
-    	}else{
+		{
+		char ibuf = -1;		//index to start walking through buffers
+		uint16_t ii = 0;
+		uint8_t iFreeIdx;
+		
+		cbTotal = min(REPLY_MAX_LEN-8, min(len, getAvailTcpDataByte(sock)));		// make sure to not copy too many bytes into reply
+		if (cbTotal > 0)
+		{
+		CREATE_HEADER_REPLY(reply, recv, PARAM_NUMS_1);
+			
+		// Send size of data we will be returning
+		reply[3] = (uint8_t)((cbTotal & 0xff00)>>8);
+		reply[3+1] = (uint8_t)(cbTotal & 0xff);
+		
+		ii = 3+2;	// data in reply buffer already
+		
+    	while((len = getTcpData((uint8_t)sock, (void**)&data, &cbTotal, &ibuf, &iFreeIdx)) != 0)
+			{
+			memcpy(reply+ii, data, len);  // copy portion or whole buffer to reply buffer
+			ii += len;			// keep track of total bytes to reply
+			if (iFreeIdx != 255)			// if we copied whole buffer free that buffer up
+				freetDataIdx(iFreeIdx, sock);
+			}
+		END_HEADER_REPLY(reply, ii, *count);
+    	}
+		else
+		{
     		CREATE_HEADER_REPLY(reply, recv, PARAM_NUMS_0);
     		END_HEADER_REPLY(reply, 3, *count);
     	}
